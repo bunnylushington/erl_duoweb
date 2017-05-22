@@ -1,6 +1,6 @@
 {application, duoweb,
- [{description, "An OTP library"},
-  {vsn, "0.1.0"},
+ [{description, "Duo Security Web API Client"},
+  {vsn, "1.0.0"},
   {registered, []},
   {applications,
    [kernel,
@@ -9,7 +9,7 @@
   {env,[]},
   {modules, []},
 
-  {maintainers, []},
+  {maintainers, ["Bunny Lushington <bunny@bapi.us>"]},
   {licenses, []},
   {links, []}
  ]}.

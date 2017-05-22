@@ -68,7 +68,6 @@ sign_request(IKey, SKey, AKey, Username) ->
 
 verify_response(IKey, SKey, AKey, Response) -> 
   [AuthSig, AppSig] = re:split(Response, ":", [{return,list}]),
-%  ?debugVal([AuthSig, AppSig]),
   AuthUser = parse_vals(SKey, AuthSig, ?AUTH_PREFIX, IKey),
   AppUser =  parse_vals(AKey, AppSig,  ?APP_PREFIX,  IKey),
   case AppUser =:= AuthUser of
@@ -89,8 +88,6 @@ sign_vals(Key, Username, IKey, Prefix, Expire) ->
   Payload = pipe_join(Prefix, Data),
   Sig = hex_hmac(Key, Payload),
   pipe_join([Prefix, Data, Sig]).
-
-
 
 parse_vals(Key, Response, Prefix, IKey) -> 
   confirm_vals(Key, pipe_split(Response), Prefix, IKey).
