@@ -33,12 +33,14 @@
                    SKey :: string(),
                    AKey :: string(),
                    Username :: string()) -> string().
-sign_request(IKey, _, _, _) when IKey =/= ?IKEY_LEN -> 
-  err(ikey);
-sign_request(_, SKey, _, _) when SKey =/= ?SKEY_LEN -> 
-  err(skey);
-sign_request(_, _, AKey, _) when AKey < ?AKEY_LEN -> 
-  err(akey);
+sign_request(IKey, _, _, _) when 
+    not is_list(IKey) orelse length(IKey) =/= ?IKEY_LEN -> err(ikey);
+sign_request(_, SKey, _, _) when 
+    not is_list(SKey) orelse length(SKey) =/= ?SKEY_LEN -> err(skey);
+sign_request(_, _, AKey, _) when 
+    not is_list(AKey) orelse length(AKey) < ?AKEY_LEN -> err(akey);
+sign_request(_, _, _, User) when 
+    not is_list(User) orelse length(User) =:= 0 -> err(user);
 sign_request(IKey, SKey, AKey, Username) -> 
   case is_valid_username(Username) of
     true -> 
@@ -65,14 +67,16 @@ sign_request(IKey, SKey, AKey, Username) ->
                       Response :: string()) -> string() | [].
 
 verify_response(IKey, SKey, AKey, Response) -> 
-  [AuthSig, AppSig] = re:split(Response, ":"),
+  [AuthSig, AppSig] = re:split(Response, ":", [{return,list}]),
+%  ?debugVal([AuthSig, AppSig]),
   AuthUser = parse_vals(SKey, AuthSig, ?AUTH_PREFIX, IKey),
   AppUser =  parse_vals(AKey, AppSig,  ?APP_PREFIX,  IKey),
   case AppUser =:= AuthUser of
-    true -> AuthUser;
+    true ->  AuthUser;
     false -> []
   end.
   
+
 
 
 %%====================================================================
@@ -83,17 +87,27 @@ sign_vals(Key, Username, IKey, Prefix, Expire) ->
   Expiration = integer_to_list(epoch() + Expire),
   Data = base64:encode_to_string(pipe_join([Username, IKey, Expiration])),
   Payload = pipe_join(Prefix, Data),
-  hex_hmac(Key, Payload).
+  Sig = hex_hmac(Key, Payload),
+  pipe_join([Prefix, Data, Sig]).
+
+
 
 parse_vals(Key, Response, Prefix, IKey) -> 
-  [ResPrefix, ResPayload, ResSig] = pipe_split(Response),
-  Sig = hex_hmac(key, pipe_join(ResPrefix, ResPayload)),
+  confirm_vals(Key, pipe_split(Response), Prefix, IKey).
+
+confirm_vals(Key, [ResPrefix, ResPayload, ResSig], Prefix, IKey) -> 
+  Sig = hex_hmac(Key, pipe_join(ResPrefix, ResPayload)),
   [Username, ResIKey, Expires] = 
-    pipe_split(base64:decode_to_string(ResPayload)),
+    try pipe_split(base64:decode_to_string(ResPayload)) of
+        [U, R, E] -> [U, R, E];
+        _ -> [ [], [], [] ]
+    catch
+      _:_ -> [ [], [], [] ]
+    end,
   case (ResPrefix =:= Prefix
         andalso hex_hmac(Key, Sig) == hex_hmac(Key, ResSig)
         andalso ResIKey =:= IKey
-        andalso Expires >= epoch()) of
+        andalso list_to_integer(Expires) >= epoch()) of
     true -> Username;
     false -> []
   end.
@@ -109,10 +123,10 @@ pipe_join(StringList) ->
   string:join(StringList, "|").
 
 pipe_split(String) -> 
-  re:split(String, "\\|").
+  re:split(String, "\\|", [{return,list}]).
 
 is_valid_username(String) -> 
-  case string:chr(String, "|") of
+  case string:chr(String, $|) of
     0 -> true;
     _ -> false
   end.
@@ -127,5 +141,67 @@ err(skey) -> err_msg(?SKEY_ERR);
 err(akey) -> err_msg(?AKEY_ERR);
 err(_)    -> err_msg(?UNKNOWN_ERR).
 
-err_msg(Msg) -> 
-  pipe_join("ERR", Msg).
+err_msg(Msg) -> pipe_join("ERR", Msg).
+
+
+
+%%====================================================================
+%% Test functions
+%%====================================================================
+-ifdef(TEST).
+
+split_token(T) -> re:split(T, ":", [{return,list}]).
+join_token(A, B) -> string:join([A, B], ":").
+
+invalid_sign_request_test_() -> 
+  [ 
+    ?_assertEqual(sign_request(?IKEY, ?SKEY, ?AKEY, ""), err(user)) 
+  , ?_assertEqual(sign_request(?IKEY, ?SKEY, ?AKEY, xx), err(user)) 
+  , ?_assertEqual(sign_request(?IKEY, ?SKEY, ?AKEY, "in|valid"), err(user)) 
+  , ?_assertEqual(sign_request("invalid", ?SKEY, ?AKEY, ?USER), err(ikey))
+  , ?_assertEqual(sign_request(invalid, ?SKEY, ?AKEY, ?USER), err(ikey))
+  , ?_assertEqual(sign_request(?IKEY, "invalid", ?AKEY, ?USER), err(skey))
+  , ?_assertEqual(sign_request(?IKEY, invalid, ?AKEY, ?USER), err(skey))
+  , ?_assertEqual(sign_request(?IKEY, ?SKEY, "invalid", ?USER), err(akey))
+  , ?_assertEqual(sign_request(?IKEY, ?SKEY, invalid, ?USER), err(akey))
+  ].
+
+valid_sign_request_test_() ->
+  [A, B] = split_token(sign_request(?IKEY, ?SKEY, ?AKEY, ?USER)),
+  [ 
+    ?_assert(length(A) > 0)
+  , ?_assert(length(B) > 0) 
+  ].
+
+verify_test_() ->
+  BadKey = string:copies("XY", 20),
+  [_, Invalid] = split_token(sign_request(?IKEY, ?SKEY, BadKey, ?USER)),
+  [_, Valid]   = split_token(sign_request(?IKEY, ?SKEY, ?AKEY, ?USER)),
+  [ 
+    ?_assertEqual([], verify_response(?IKEY, ?SKEY, ?AKEY, 
+                                      join_token(?INVALID_RESPONSE, Valid)))
+    
+  , ?_assertEqual([], verify_response(?IKEY, ?SKEY, ?AKEY,
+                                      join_token(?EXPIRED_RESPONSE, Valid)))
+
+  , ?_assertEqual([], verify_response(?IKEY, ?SKEY, ?AKEY,
+                                      join_token(?FUTURE_RESPONSE, Invalid)))
+
+  , ?_assertEqual(?USER, verify_response(?IKEY, ?SKEY, ?AKEY,
+                                         join_token(?FUTURE_RESPONSE, Valid)))
+
+  , ?_assertEqual([], verify_response(?IKEY, ?SKEY, ?AKEY,
+                                      join_token(?FUTURE_RESPONSE, 
+                                                 ?WRONG_PARAMS_APP)))
+   
+  , ?_assertEqual([], verify_response(?IKEY, ?SKEY, ?AKEY, 
+                                      join_token(?WRONG_PARAMS_RESPONSE,
+                                                 Valid)))
+
+  , ?_assertEqual([], verify_response(?WRONG_IKEY, ?SKEY, ?AKEY,
+                                      join_token(?FUTURE_RESPONSE, Valid)))
+  ].
+
+-endif.
+
+
