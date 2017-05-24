@@ -10,7 +10,7 @@
 -define(AKEY_LEN, 40).
 
 -define(USER_ERR,
-        "The username passwed to sign_request/4 is invalid.").
+        "The username passed to sign_request/4 is invalid.").
 
 -define(IKEY_ERR,
         "The Duo integration key passed to sign_request/4 is invalid.").
