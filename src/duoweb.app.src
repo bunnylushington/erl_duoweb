@@ -10,6 +10,6 @@
   {modules, []},
 
   {maintainers, ["Bunny Lushington <bunny@bapi.us>"]},
-  {licenses, []},
-  {links, []}
+  {licenses, ["BSD 3"]},
+  {links, [{"Github", "https://github.com/bunnylushington/erl_duoweb"}]}
  ]}.
